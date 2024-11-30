@@ -1,4 +1,4 @@
-package ynab
+package main
 
 // types available at https://api.ynab.com/v1#/Transactions/createTransaction
 

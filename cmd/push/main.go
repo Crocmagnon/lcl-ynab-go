@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/Crocmagnon/ynab-go/internal/ynab"
 	"github.com/carlmjohnson/requests"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/unicode"
@@ -105,13 +104,13 @@ func parseFlags(args []string, filename, budgetID, accountID, token, webhook *st
 	return nil
 }
 
-func convert(reader io.Reader, accountID string) ([]ynab.Transaction, int, error) {
+func convert(reader io.Reader, accountID string) ([]Transaction, int, error) {
 	transformer := unicode.BOMOverride(encoding.Nop.NewDecoder())
 
 	csvReader := csv.NewReader(transform.NewReader(reader, transformer))
 	csvReader.Comma = ';'
 
-	var transactions []ynab.Transaction
+	var transactions []Transaction
 
 	importIDs := make(map[string]int)
 
@@ -138,7 +137,7 @@ func convert(reader io.Reader, accountID string) ([]ynab.Transaction, int, error
 	return transactions, 0, nil
 }
 
-func convertLine(record []string, accountID string, importIDs map[string]int) (*ynab.Transaction, error) {
+func convertLine(record []string, accountID string, importIDs map[string]int) (*Transaction, error) {
 	date, err := time.Parse("02/01/2006", record[0])
 	if err != nil {
 		return nil, fmt.Errorf("parsing date: %w", err)
@@ -162,7 +161,7 @@ func convertLine(record []string, accountID string, importIDs map[string]int) (*
 
 	payee := getPayee(recordString)
 
-	transaction := &ynab.Transaction{
+	transaction := &Transaction{
 		AccountId: accountID,
 		Date:      formattedDate,
 		PayeeName: payee,
@@ -227,12 +226,12 @@ func createImportID(amount int, date string, importIDs map[string]int) string {
 	return fmt.Sprintf("%v:%v", importID, occurrence)
 }
 
-func push(ctx context.Context, transactions []ynab.Transaction, budgetID, token string) (int, error) {
+func push(ctx context.Context, transactions []Transaction, budgetID, token string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var (
-		resp    ynab.TransactionsResponse
+		resp    TransactionsResponse
 		errResp bytes.Buffer
 	)
 
@@ -241,7 +240,7 @@ func push(ctx context.Context, transactions []ynab.Transaction, budgetID, token 
 		Header("Authorization", fmt.Sprintf("Bearer %v", token)).
 		Method(http.MethodPost).
 		AddValidator(requests.ValidatorHandler(requests.DefaultValidator, requests.ToBytesBuffer(&errResp))).
-		BodyJSON(ynab.TransactionsPayload{Transactions: transactions}).
+		BodyJSON(TransactionsPayload{Transactions: transactions}).
 		ToJSON(&resp).
 		Fetch(ctx)
 	if err != nil {

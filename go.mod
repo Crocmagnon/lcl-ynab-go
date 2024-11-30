@@ -1,4 +1,4 @@
-module github.com/Crocmagnon/ynab-go
+module github.com/Crocmagnon/lcl-ynab-go
 
 go 1.23.3
 
