@@ -36,10 +36,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 		budgetID  string
 		accountID string
 		token     string
+		webhook   string
 		verbose   bool
 	)
 
-	err := parseFlags(args, &filename, &budgetID, &accountID, &token, &verbose)
+	err := parseFlags(args, &filename, &budgetID, &accountID, &token, &webhook, &verbose)
 	if err != nil {
 		return err
 	}
@@ -57,7 +58,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 	if verbose {
 		fmt.Printf("transactions:\n%+v\n\n", transactions)
 	}
-	fmt.Printf("reconciled:%.2f€\n", float64(reconciled)/100.0)
+	fmt.Printf("reconciled:%v€\n", reconciledString(reconciled))
 
 	duplicateCount, err := push(ctx, transactions, budgetID, token)
 	if err != nil {
@@ -67,15 +68,22 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 	fmt.Fprintf(stdout, "successfully pushed %d transaction(s)\n", len(transactions))
 	fmt.Fprintf(stdout, "found %d duplicate(s)\n", duplicateCount)
 
+	if webhook != "" {
+		if err := send(ctx, webhook, reconciled); err != nil {
+			return fmt.Errorf("sending webhook: %w", err)
+		}
+	}
+
 	return nil
 }
 
-func parseFlags(args []string, filename, budgetID, accountID, token *string, verbose *bool) error {
+func parseFlags(args []string, filename, budgetID, accountID, token, webhook *string, verbose *bool) error {
 	flagset := flag.NewFlagSet("", flag.ExitOnError)
 	flagset.StringVar(filename, "f", "", "CSV file to parse")
 	flagset.StringVar(budgetID, "b", "", "Budget ID")
 	flagset.StringVar(accountID, "a", "", "Account ID")
 	flagset.StringVar(token, "t", "", "Token")
+	flagset.StringVar(webhook, "w", "", "Home Assistant webhook URL")
 	flagset.BoolVar(verbose, "v", false, "Verbose output")
 
 	err := flagset.Parse(args)
@@ -220,6 +228,9 @@ func createImportID(amount int, date string, importIDs map[string]int) string {
 }
 
 func push(ctx context.Context, transactions []ynab.Transaction, budgetID, token string) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	var (
 		resp    ynab.TransactionsResponse
 		errResp bytes.Buffer
@@ -238,4 +249,27 @@ func push(ctx context.Context, transactions []ynab.Transaction, budgetID, token 
 	}
 
 	return len(resp.Data.DuplicateImportIds), nil
+}
+
+func send(ctx context.Context, webhook string, reconciled int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type Payload struct {
+		Reconciled string `json:"reconciled"`
+	}
+
+	err := requests.URL(webhook).
+		Method(http.MethodPost).
+		BodyJSON(Payload{Reconciled: reconciledString(reconciled)}).
+		Fetch(ctx)
+	if err != nil {
+		return fmt.Errorf("sending webhook: %w", err)
+	}
+
+	return nil
+}
+
+func reconciledString(amnt int) string {
+	return fmt.Sprintf("%.2f", float64(amnt)/1000.0)
 }
