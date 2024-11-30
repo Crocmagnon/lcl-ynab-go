@@ -1,6 +1,6 @@
 # lcl-ynab-go
 
-## push
+## deploy to prod
 ```shell
 make deploy
 ```
