@@ -7,26 +7,13 @@ type TransactionsPayload struct {
 }
 
 type Transaction struct {
-	AccountId       string           `json:"account_id"`
-	Date            string           `json:"date"`
-	Amount          int              `json:"amount"`
-	PayeeId         string           `json:"payee_id"`
-	PayeeName       string           `json:"payee_name"`
-	CategoryId      string           `json:"category_id"`
-	Memo            string           `json:"memo"`
-	Cleared         string           `json:"cleared"`
-	Approved        bool             `json:"approved"`
-	FlagColor       string           `json:"flag_color"`
-	SubTransactions []SubTransaction `json:"subtransactions"`
-	ImportId        string           `json:"import_id"`
-}
-
-type SubTransaction struct {
-	Amount     int    `json:"amount"`
-	PayeeId    string `json:"payee_id"`
-	PayeeName  string `json:"payee_name"`
-	CategoryId string `json:"category_id"`
-	Memo       string `json:"memo"`
+	AccountId string `json:"account_id,omitempty"`
+	Date      string `json:"date,omitempty"`
+	Amount    int    `json:"amount,omitempty"`
+	PayeeName string `json:"payee_name,omitempty"`
+	Memo      string `json:"memo,omitempty"`
+	Cleared   string `json:"cleared,omitempty"`
+	ImportId  string `json:"import_id,omitempty"`
 }
 
 type TransactionsResponse struct {

@@ -1,37 +1,45 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/csv"
 	"errors"
 	"flag"
 	"fmt"
 	"github.com/Crocmagnon/ynab-go/internal/ynab"
+	"github.com/carlmjohnson/requests"
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/unicode"
 	"golang.org/x/text/transform"
 	"io"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
+var errRequiredFlag = errors.New("flag is required")
+
 func main() {
-	if err := run(os.Args[1:], os.Stdin, os.Stdout); err != nil {
+	ctx := context.Background()
+	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(args []string, stdin io.Reader, stdout io.Writer) error {
+func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
 	var (
 		filename  string
 		budgetID  string
 		accountID string
 		token     string
+		verbose   bool
 	)
 
-	err := parseFlags(args, &filename, &budgetID, &accountID, &token)
+	err := parseFlags(args, &filename, &budgetID, &accountID, &token, &verbose)
 	if err != nil {
 		return err
 	}
@@ -46,26 +54,44 @@ func run(args []string, stdin io.Reader, stdout io.Writer) error {
 		return fmt.Errorf("converting to YNAB transactions: %w", err)
 	}
 
-	fmt.Printf("transactions:\n%+v\n", transactions)
-	fmt.Printf("reconciled:\n%v\n", reconciled)
+	if verbose {
+		fmt.Printf("transactions:\n%+v\n\n", transactions)
+	}
+	fmt.Printf("reconciled:%.2f€\n", float64(reconciled)/100.0)
 
-	if err := push(transactions); err != nil {
+	duplicateCount, err := push(ctx, transactions, budgetID, token)
+	if err != nil {
 		return fmt.Errorf("pushing to YNAB: %w", err)
 	}
+
+	fmt.Fprintf(stdout, "successfully pushed %d transaction(s)\n", len(transactions))
+	fmt.Fprintf(stdout, "found %d duplicate(s)\n", duplicateCount)
 
 	return nil
 }
 
-func parseFlags(args []string, filename, budgetID, accountID, token *string) error {
+func parseFlags(args []string, filename, budgetID, accountID, token *string, verbose *bool) error {
 	flagset := flag.NewFlagSet("", flag.ExitOnError)
 	flagset.StringVar(filename, "f", "", "CSV file to parse")
 	flagset.StringVar(budgetID, "b", "", "Budget ID")
 	flagset.StringVar(accountID, "a", "", "Account ID")
 	flagset.StringVar(token, "t", "", "Token")
+	flagset.BoolVar(verbose, "v", false, "Verbose output")
 
 	err := flagset.Parse(args)
 	if err != nil {
 		return fmt.Errorf("parsing flags: %w", err)
+	}
+
+	switch {
+	case *filename == "":
+		return fmt.Errorf("%w: -f", errRequiredFlag)
+	case *budgetID == "":
+		return fmt.Errorf("%w: -b", errRequiredFlag)
+	case *accountID == "":
+		return fmt.Errorf("%w: -a", errRequiredFlag)
+	case *token == "":
+		return fmt.Errorf("%w: -t", errRequiredFlag)
 	}
 
 	return nil
@@ -115,19 +141,56 @@ func convertLine(record []string, accountID string, importIDs map[string]int) (*
 		return nil, err
 	}
 
+	recordString := record[4]
+	if amount > 0 {
+		recordString = record[5]
+	}
+
+	if specificDate, ok := getDate(recordString); ok {
+		date = specificDate
+	}
+
 	formattedDate := date.Format("2006-01-02")
+
+	payee := getPayee(recordString)
 
 	transaction := &ynab.Transaction{
 		AccountId: accountID,
 		Date:      formattedDate,
-		PayeeName: record[5],
-		Memo:      record[5],
+		PayeeName: payee,
+		Memo:      recordString,
 		Amount:    amount,
 		ImportId:  createImportID(amount, formattedDate, importIDs),
 		Cleared:   "cleared",
 	}
 
 	return transaction, nil
+}
+
+func getDate(recordString string) (time.Time, bool) {
+	if len(recordString) < 8 {
+		return time.Time{}, false
+	}
+
+	date, err := time.Parse("02/01/06", recordString[len(recordString)-8:])
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	return date, true
+}
+
+func getPayee(recordString string) string {
+	if len(recordString) < 8 {
+		return recordString
+	}
+
+	_, err := time.Parse("02/01/06", recordString[len(recordString)-8:])
+	if err != nil {
+		return recordString
+	}
+
+	return strings.TrimSpace(recordString[:len(recordString)-8])
 }
 
 func getAmount(amnt string) (int, error) {
@@ -156,6 +219,23 @@ func createImportID(amount int, date string, importIDs map[string]int) string {
 	return fmt.Sprintf("%v:%v", importID, occurrence)
 }
 
-func push(transactions []ynab.Transaction) error {
-	return fmt.Errorf("not implemented")
+func push(ctx context.Context, transactions []ynab.Transaction, budgetID, token string) (int, error) {
+	var (
+		resp    ynab.TransactionsResponse
+		errResp bytes.Buffer
+	)
+
+	err := requests.URL("https://api.youneedabudget.com/").
+		Pathf("/v1/budgets/%s/transactions", budgetID).
+		Header("Authorization", fmt.Sprintf("Bearer %v", token)).
+		Method(http.MethodPost).
+		AddValidator(requests.ValidatorHandler(requests.DefaultValidator, requests.ToBytesBuffer(&errResp))).
+		BodyJSON(ynab.TransactionsPayload{Transactions: transactions}).
+		ToJSON(&resp).
+		Fetch(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("pushing transactions: %w - %v", err, errResp.String())
+	}
+
+	return len(resp.Data.DuplicateImportIds), nil
 }
