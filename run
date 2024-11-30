@@ -1,0 +1,4 @@
+#!/bin/bash
+
+./download -i $LCL_IDENTIFIER -p $LCL_PASSWD -o out.csv -headless
+./push ./push -t $YNAB_TOKEN -b $BUDGET_ID -a $ACCOUNT_ID -f out.csv
