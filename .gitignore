@@ -1,0 +1,5 @@
+download
+push
+*.csv
+*.ofx
+.idea
