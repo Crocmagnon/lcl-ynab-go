@@ -1,5 +1,5 @@
 /download
 /push
-*.csv
-*.ofx
+contrib/*.csv
+contrib/*.ofx
 .idea

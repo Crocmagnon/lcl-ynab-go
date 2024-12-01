@@ -18,9 +18,6 @@ type Transaction struct {
 
 type TransactionsResponse struct {
 	Data struct {
-		Transactions []struct {
-			MatchedTransactionID string `json:"matched_transaction_id"`
-		} `json:"transactions"`
 		DuplicateImportIDs []string `json:"duplicate_import_ids"`
 	} `json:"data"`
 }

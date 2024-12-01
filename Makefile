@@ -1,6 +1,6 @@
-.PHONY: push download all lint
+.PHONY: push download all lint test
 
-all: lint push download
+all: test lint push download
 
 push:
 	GOOS=linux GOARCH=amd64 go build ./cmd/push
@@ -13,3 +13,6 @@ deploy: all
 
 lint:
 	golangci-lint run --fix ./...
+
+test:
+	go test ./... -race

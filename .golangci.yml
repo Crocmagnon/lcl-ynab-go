@@ -5,3 +5,10 @@ linters:
     - tagliatelle # consuming remote APIs only
     - depguard # not interested
     - exhaustruct # not interested
+    - nonamedreturns # not interested, we want to guard against naked returns (nakedret)
+linters-settings:
+  nlreturn:
+    block-size: 3
+  varnamelen:
+    ignore-names:
+      - tt

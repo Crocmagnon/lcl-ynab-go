@@ -31,13 +31,13 @@ var errRequiredFlag = errors.New("flag is required")
 
 func main() {
 	ctx := context.Background()
-	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
+	if err := run(ctx, os.Args[1:], os.Stdout, http.DefaultClient); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, args []string, stdout io.Writer) error {
+func run(ctx context.Context, args []string, stdout io.Writer, httpClient *http.Client) error {
 	var (
 		filename  string
 		budgetID  string
@@ -66,9 +66,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		_, _ = fmt.Fprintf(stdout, "transactions:\n%+v\n\n", transactions)
 	}
 
-	_, _ = fmt.Fprintf(stdout, "reconciled:%v€\n", reconciledString(reconciled))
+	_, _ = fmt.Fprintf(stdout, "reconciled: %v€\n", reconciledString(reconciled))
 
-	duplicateCount, err := push(ctx, transactions, budgetID, token)
+	duplicateCount, err := push(ctx, httpClient, transactions, budgetID, token)
 	if err != nil {
 		return fmt.Errorf("pushing to YNAB: %w", err)
 	}
@@ -114,6 +114,10 @@ func parseFlags(args []string, filename, budgetID, accountID, token, webhook *st
 }
 
 func convert(reader io.Reader, accountID string) ([]Transaction, int, error) {
+	if reader == nil {
+		return nil, 0, nil
+	}
+
 	transformer := unicode.BOMOverride(encoding.Nop.NewDecoder())
 
 	csvReader := csv.NewReader(transform.NewReader(reader, transformer))
@@ -238,7 +242,16 @@ func createImportID(amount int, date string, importIDs map[string]int) string {
 	return fmt.Sprintf("%v:%v", importID, occurrence)
 }
 
-func push(ctx context.Context, transactions []Transaction, budgetID, token string) (int, error) {
+func push(
+	ctx context.Context,
+	client *http.Client,
+	transactions []Transaction,
+	budgetID, token string,
+) (duplicateCount int, err error) {
+	if len(transactions) == 0 {
+		return 0, nil
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
 
@@ -248,7 +261,8 @@ func push(ctx context.Context, transactions []Transaction, budgetID, token strin
 	)
 
 	//nolint:bodyclose // reported https://github.com/earthboundkid/requests/discussions/121
-	err := requests.URL("https://api.youneedabudget.com/").
+	err = requests.URL("https://api.youneedabudget.com/").
+		Client(client).
 		Pathf("/v1/budgets/%s/transactions", budgetID).
 		Header("Authorization", fmt.Sprintf("Bearer %v", token)).
 		Method(http.MethodPost).

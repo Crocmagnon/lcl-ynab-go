@@ -4,6 +4,7 @@ go 1.23.3
 
 require (
 	github.com/carlmjohnson/requests v0.24.3
+	github.com/jarcoal/httpmock v1.3.1
 	github.com/playwright-community/playwright-go v0.4802.0
 	golang.org/x/text v0.20.0
 )
