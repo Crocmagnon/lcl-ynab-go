@@ -2,14 +2,19 @@
 
 all: test lint push download
 
-push:
-	GOOS=linux GOARCH=amd64 go build ./cmd/push
+dist:
+	mkdir -p dist
 
-download:
-	GOOS=linux GOARCH=amd64 go build ./cmd/download
+push: dist
+	GOOS=linux GOARCH=amd64 go build -o ./dist/push-linux-amd64 ./cmd/push
+	go build -o ./dist/push ./cmd/push
+
+download: dist
+	GOOS=linux GOARCH=amd64 go build -o ./dist/download-linux-amd64 ./cmd/download
+	go build -o ./dist/download ./cmd/download
 
 deploy: all
-	scp push download ubuntu:/mnt/data/ynab
+	scp ./dist/push ./dist/download ubuntu:/mnt/data/ynab
 
 lint:
 	golangci-lint run --fix ./...

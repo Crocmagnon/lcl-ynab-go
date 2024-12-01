@@ -1,5 +1,4 @@
-/download
-/push
+dist
 contrib/*.csv
 contrib/*.ofx
 .idea
