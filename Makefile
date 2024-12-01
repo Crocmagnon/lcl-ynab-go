@@ -14,7 +14,8 @@ download: dist
 	go build -o ./dist/download ./cmd/download
 
 deploy: all
-	scp ./dist/push ./dist/download ubuntu:/mnt/data/ynab
+	scp ./dist/push-linux-amd64 ubuntu:/mnt/data/ynab/push
+	scp ./dist/download-linux-amd64 ubuntu:/mnt/data/ynab/download
 
 lint:
 	golangci-lint run --fix ./...
