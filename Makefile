@@ -1,6 +1,6 @@
-.PHONY: push download all
+.PHONY: push download all lint
 
-all: push download
+all: lint push download
 
 push:
 	GOOS=linux GOARCH=amd64 go build ./cmd/push
@@ -10,3 +10,6 @@ download:
 
 deploy: all
 	scp push download ubuntu:/mnt/data/ynab
+
+lint:
+	golangci-lint run --fix ./...

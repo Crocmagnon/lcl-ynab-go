@@ -1,0 +1,7 @@
+linters:
+  enable-all: true
+  disable:
+    - exportloopref # deprecated
+    - tagliatelle # consuming remote APIs only
+    - depguard # not interested
+    - exhaustruct # not interested

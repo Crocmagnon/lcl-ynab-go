@@ -7,29 +7,37 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/carlmjohnson/requests"
-	"golang.org/x/text/encoding"
-	"golang.org/x/text/encoding/unicode"
-	"golang.org/x/text/transform"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/carlmjohnson/requests"
+	"golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
+)
+
+const (
+	milliUnit     = 1000
+	apiTimeout    = 10 * time.Second
+	lclDateFormat = "02/01/06"
+	lclDateLen    = len(lclDateFormat)
 )
 
 var errRequiredFlag = errors.New("flag is required")
 
 func main() {
 	ctx := context.Background()
-	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
+	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
+func run(ctx context.Context, args []string, stdout io.Writer) error {
 	var (
 		filename  string
 		budgetID  string
@@ -55,17 +63,18 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) 
 	}
 
 	if verbose {
-		fmt.Printf("transactions:\n%+v\n\n", transactions)
+		_, _ = fmt.Fprintf(stdout, "transactions:\n%+v\n\n", transactions)
 	}
-	fmt.Printf("reconciled:%v€\n", reconciledString(reconciled))
+
+	_, _ = fmt.Fprintf(stdout, "reconciled:%v€\n", reconciledString(reconciled))
 
 	duplicateCount, err := push(ctx, transactions, budgetID, token)
 	if err != nil {
 		return fmt.Errorf("pushing to YNAB: %w", err)
 	}
 
-	fmt.Fprintf(stdout, "successfully pushed %d transaction(s)\n", len(transactions))
-	fmt.Fprintf(stdout, "found %d duplicate(s)\n", duplicateCount)
+	_, _ = fmt.Fprintf(stdout, "successfully pushed %d transaction(s)\n", len(transactions))
+	_, _ = fmt.Fprintf(stdout, "found %d duplicate(s)\n", duplicateCount)
 
 	if webhook != "" {
 		if err := send(ctx, webhook, reconciled); err != nil {
@@ -116,12 +125,15 @@ func convert(reader io.Reader, accountID string) ([]Transaction, int, error) {
 
 	for {
 		record, err := csvReader.Read()
+
 		if errors.Is(err, io.EOF) {
 			break
 		}
+
 		if errors.Is(err, csv.ErrFieldCount) {
 			return transactions, getReconciled(record), nil
 		}
+
 		if err != nil {
 			return nil, 0, fmt.Errorf("reading csv line: %w", err)
 		}
@@ -162,12 +174,12 @@ func convertLine(record []string, accountID string, importIDs map[string]int) (*
 	payee := getPayee(recordString)
 
 	transaction := &Transaction{
-		AccountId: accountID,
+		AccountID: accountID,
 		Date:      formattedDate,
 		PayeeName: payee,
 		Memo:      recordString,
 		Amount:    amount,
-		ImportId:  createImportID(amount, formattedDate, importIDs),
+		ImportID:  createImportID(amount, formattedDate, importIDs),
 		Cleared:   "cleared",
 	}
 
@@ -175,11 +187,11 @@ func convertLine(record []string, accountID string, importIDs map[string]int) (*
 }
 
 func getDate(recordString string) (time.Time, bool) {
-	if len(recordString) < 8 {
+	if len(recordString) < lclDateLen {
 		return time.Time{}, false
 	}
 
-	date, err := time.Parse("02/01/06", recordString[len(recordString)-8:])
+	date, err := time.Parse(lclDateFormat, recordString[len(recordString)-8:])
 	if err != nil {
 		return time.Time{}, false
 	}
@@ -188,16 +200,16 @@ func getDate(recordString string) (time.Time, bool) {
 }
 
 func getPayee(recordString string) string {
-	if len(recordString) < 8 {
+	if len(recordString) < lclDateLen {
 		return recordString
 	}
 
-	_, err := time.Parse("02/01/06", recordString[len(recordString)-8:])
+	_, err := time.Parse(lclDateFormat, recordString[len(recordString)-lclDateLen:])
 	if err != nil {
 		return recordString
 	}
 
-	return strings.TrimSpace(recordString[:len(recordString)-8])
+	return strings.TrimSpace(recordString[:len(recordString)-lclDateLen])
 }
 
 func getAmount(amnt string) (int, error) {
@@ -206,8 +218,7 @@ func getAmount(amnt string) (int, error) {
 		return 0, fmt.Errorf("parsing amount: %w", err)
 	}
 
-	amount := int(amntFloat * 1000)
-	return amount, nil
+	return int(amntFloat * milliUnit), nil
 }
 
 func getReconciled(record []string) int {
@@ -223,11 +234,12 @@ func createImportID(amount int, date string, importIDs map[string]int) string {
 	importID := fmt.Sprintf("YNAB:%v:%v", amount, date)
 	occurrence := importIDs[importID] + 1
 	importIDs[importID] = occurrence
+
 	return fmt.Sprintf("%v:%v", importID, occurrence)
 }
 
 func push(ctx context.Context, transactions []Transaction, budgetID, token string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
 
 	var (
@@ -235,6 +247,7 @@ func push(ctx context.Context, transactions []Transaction, budgetID, token strin
 		errResp bytes.Buffer
 	)
 
+	//nolint:bodyclose // reported https://github.com/earthboundkid/requests/discussions/121
 	err := requests.URL("https://api.youneedabudget.com/").
 		Pathf("/v1/budgets/%s/transactions", budgetID).
 		Header("Authorization", fmt.Sprintf("Bearer %v", token)).
@@ -247,11 +260,11 @@ func push(ctx context.Context, transactions []Transaction, budgetID, token strin
 		return 0, fmt.Errorf("pushing transactions: %w - %v", err, errResp.String())
 	}
 
-	return len(resp.Data.DuplicateImportIds), nil
+	return len(resp.Data.DuplicateImportIDs), nil
 }
 
 func send(ctx context.Context, webhook string, reconciled int) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
 
 	type Payload struct {
@@ -270,5 +283,5 @@ func send(ctx context.Context, webhook string, reconciled int) error {
 }
 
 func reconciledString(amnt int) string {
-	return fmt.Sprintf("%.2f", float64(amnt)/1000.0)
+	return fmt.Sprintf("%.2f", float64(amnt)/milliUnit)
 }

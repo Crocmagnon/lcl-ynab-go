@@ -1,18 +1,22 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
-	"github.com/playwright-community/playwright-go"
 	"io"
 	"os"
 	"time"
+
+	"github.com/playwright-community/playwright-go"
 )
 
 const (
 	wantIdentifierLen = 10
 	wantPasswordLen   = 6
 )
+
+var errInvalidLen = errors.New("invalid length")
 
 func main() {
 	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
@@ -43,14 +47,14 @@ func run(args []string, stdout io.Writer, stderr io.Writer) error {
 		return fmt.Errorf("installing playwright: %w", err)
 	}
 
-	pw, err := playwright.Run()
+	playw, err := playwright.Run()
 	if err != nil {
 		return fmt.Errorf("launching playwright: %w", err)
 	}
 
-	defer pw.Stop()
+	defer playw.Stop() //nolint:errcheck
 
-	browser, err := pw.Firefox.Launch(playwright.BrowserTypeLaunchOptions{
+	browser, err := playw.Firefox.Launch(playwright.BrowserTypeLaunchOptions{
 		Headless: playwright.Bool(headless),
 	})
 	if err != nil {
@@ -93,17 +97,37 @@ func parseFlags(args []string, identifier, password, outputFile *string, headles
 	}
 
 	if len(*identifier) != wantIdentifierLen {
-		return fmt.Errorf("invalid identifier length %d, want %d", len(*identifier), wantIdentifierLen)
+		return fmt.Errorf("%w for identifier: %d, want %d", errInvalidLen, len(*identifier), wantIdentifierLen)
 	}
 
 	if len(*password) != wantPasswordLen {
-		return fmt.Errorf("invalid password length %d, want %d", len(*password), wantPasswordLen)
+		return fmt.Errorf("%w for password: %d, want %d", errInvalidLen, len(*password), wantPasswordLen)
 	}
 
 	return nil
 }
 
 func downloadFile(page playwright.Page, identifier, password, outputFile string) error {
+	if err := login(page, identifier, password); err != nil {
+		return fmt.Errorf("logging in: %w", err)
+	}
+
+	if err := navigateToForm(page); err != nil {
+		return fmt.Errorf("navigating to form: %w", err)
+	}
+
+	if err := fillForm(page); err != nil {
+		return fmt.Errorf("filling form: %w", err)
+	}
+
+	if err := downloadAndSave(page, outputFile); err != nil {
+		return fmt.Errorf("downloading and saving: %w", err)
+	}
+
+	return nil
+}
+
+func login(page playwright.Page, identifier, password string) error {
 	_, err := page.Goto("https://monespace.lcl.fr/connexion")
 	if err != nil {
 		return fmt.Errorf("going to: %w", err)
@@ -129,6 +153,10 @@ func downloadFile(page playwright.Page, identifier, password, outputFile string)
 		return fmt.Errorf("clicking login button: %w", err)
 	}
 
+	return nil
+}
+
+func navigateToForm(page playwright.Page) error {
 	if err := page.Locator(".extended-zone").First().Click(); err != nil {
 		return fmt.Errorf("clicking account: %w", err)
 	}
@@ -137,6 +165,10 @@ func downloadFile(page playwright.Page, identifier, password, outputFile string)
 		return fmt.Errorf("clicking export button: %w", err)
 	}
 
+	return nil
+}
+
+func fillForm(page playwright.Page) error {
 	end := time.Now().UTC().AddDate(0, 0, -1)
 	start := end.AddDate(0, -1, 0)
 
@@ -158,6 +190,10 @@ func downloadFile(page playwright.Page, identifier, password, outputFile string)
 		return fmt.Errorf("clicking file format button: %w", err)
 	}
 
+	return nil
+}
+
+func downloadAndSave(page playwright.Page, outputFile string) error {
 	download, err := page.ExpectDownload(func() error {
 		return page.Locator(".download-button").Click()
 	})
@@ -168,5 +204,6 @@ func downloadFile(page playwright.Page, identifier, password, outputFile string)
 	if err := download.SaveAs(outputFile); err != nil {
 		return fmt.Errorf("saving download file: %w", err)
 	}
+
 	return nil
 }
