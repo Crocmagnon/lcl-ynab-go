@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/playwright-community/playwright-go"
@@ -27,13 +28,14 @@ func main() {
 
 func run(args []string, stdout io.Writer, stderr io.Writer) error {
 	var (
-		identifier string
-		password   string
-		outputFile string
-		headless   bool
+		identifier    string
+		password      string
+		outputFile    string
+		screenshotDir string
+		headless      bool
 	)
 
-	err := parseFlags(args, &identifier, &password, &outputFile, &headless)
+	err := parseFlags(args, &identifier, &password, &outputFile, &screenshotDir, &headless)
 	if err != nil {
 		return err
 	}
@@ -78,17 +80,39 @@ func run(args []string, stdout io.Writer, stderr io.Writer) error {
 	defer page.Close()
 
 	if err := downloadFile(page, identifier, password, outputFile); err != nil {
+		saveScreenshot(page, stderr, screenshotDir)
 		return err
 	}
 
 	return nil
 }
 
-func parseFlags(args []string, identifier, password, outputFile *string, headless *bool) error {
+func saveScreenshot(page playwright.Page, stderr io.Writer, dir string) {
+	img, err := page.Screenshot()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "error saving screenshot:", err)
+		return
+	}
+
+	const perm = 0o755
+	_ = os.MkdirAll(dir, perm)
+
+	file, err := os.Create(filepath.Join(dir, "screenshot.png"))
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "error creating screenshot file:", err)
+		return
+	}
+
+	defer file.Close()
+	_, _ = file.Write(img)
+}
+
+func parseFlags(args []string, identifier, password, outputFile, screenshotDir *string, headless *bool) error {
 	flagset := flag.NewFlagSet("", flag.ExitOnError)
 	flagset.StringVar(identifier, "i", "", "Bank identifier")
 	flagset.StringVar(password, "p", "", "Bank password")
 	flagset.StringVar(outputFile, "o", "", "Output file")
+	flagset.StringVar(screenshotDir, "screenshots", "screenshots", "Output file")
 	flagset.BoolVar(headless, "headless", false, "Headless mode")
 
 	err := flagset.Parse(args)
