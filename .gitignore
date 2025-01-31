@@ -3,3 +3,4 @@ contrib/*.csv
 contrib/*.ofx
 .idea
 screenshots
+out

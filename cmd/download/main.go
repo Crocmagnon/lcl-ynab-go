@@ -219,7 +219,7 @@ func fillForm(page playwright.Page) error {
 
 func downloadAndSave(page playwright.Page, outputFile string) error {
 	download, err := page.ExpectDownload(func() error {
-		return page.Locator(".download-button").Click()
+		return page.Locator("button.primary").Click()
 	})
 	if err != nil {
 		return fmt.Errorf("downloading file: %w", err)
